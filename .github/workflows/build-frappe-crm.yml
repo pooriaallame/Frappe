@@ -24,7 +24,7 @@ jobs:
           [
             {
               "url": "https://github.com/frappe/crm",
-              "branch": "v1.82.0"
+              "branch": "v1.88.0"
             }
           ]
           EOF
@@ -45,20 +45,20 @@ jobs:
             --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
             --build-arg=FRAPPE_BRANCH=version-16 \
             --secret=id=apps_json,src=frappe_docker/apps.json \
-            --tag=ghcr.io/pooriaallame/frappe-crm-isolated:1.82.0 \
+            --tag=ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0 \
             --file=frappe_docker/images/layered/Containerfile \
             --push \
             frappe_docker
 
       - name: Verify pushed image
         run: |
-          docker pull ghcr.io/pooriaallame/frappe-crm-isolated:1.82.0
+          docker pull ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0
 
           docker run \
             --rm \
             --network none \
             --entrypoint /bin/sh \
-            ghcr.io/pooriaallame/frappe-crm-isolated:1.82.0 \
+            ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0 \
             -lc '
               echo "===== APPS ====="
               ls -1 /home/frappe/frappe-bench/apps
