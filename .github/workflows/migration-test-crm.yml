@@ -118,9 +118,9 @@ jobs:
             --volume "$CI_SITES_DIR:/home/frappe/frappe-bench/sites" \
             --volume "$RUNNER_TEMP/crm-seed.py:/tmp/seed.py:ro" \
             "$OLD_IMAGE" bash -lc '
-              cd /home/frappe/frappe-bench
-              mkdir -p /home/frappe/logs
-              ./env/bin/python /tmp/seed.py
+              cd /home/frappe/frappe-bench/sites
+              mkdir -p ../logs migration-check.localhost/logs
+              ../env/bin/python /tmp/seed.py
             '
 
       - name: Migrate same site with CRM 1.88.0
@@ -167,9 +167,9 @@ jobs:
             --volume "$CI_SITES_DIR:/home/frappe/frappe-bench/sites" \
             --volume "$RUNNER_TEMP/crm-verify.py:/tmp/verify.py:ro" \
             "$NEW_IMAGE" bash -lc '
-              cd /home/frappe/frappe-bench
-              mkdir -p /home/frappe/logs
-              ./env/bin/python /tmp/verify.py
+              cd /home/frappe/frappe-bench/sites
+              mkdir -p ../logs migration-check.localhost/logs
+              ../env/bin/python /tmp/verify.py
             '
 
       - name: Cleanup note
