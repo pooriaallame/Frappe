@@ -2,9 +2,6 @@ name: Build Frappe CRM Image
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - upgrade/crm-v1.88.0-20261021
 
 permissions:
   contents: read
