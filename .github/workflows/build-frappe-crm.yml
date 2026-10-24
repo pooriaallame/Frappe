@@ -44,14 +44,23 @@ jobs:
 
       - name: Build and Push Frappe CRM
         run: |
-          docker buildx build \
+          set -o pipefail
+          if docker buildx build \
             --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
             --build-arg=FRAPPE_BRANCH=version-16 \
             --secret=id=apps_json,src=frappe_docker/apps.json \
             --tag=ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0 \
             --file=frappe_docker/images/layered/Containerfile \
+            --progress=plain \
             --push \
-            frappe_docker
+            frappe_docker > /tmp/crm-build.log 2>&1; then
+            echo "BUILD_AND_PUSH_SUCCEEDED"
+            tail -n 50 /tmp/crm-build.log
+          else
+            echo "::error::Docker image build failed. Final diagnostic log:"
+            tail -n 180 /tmp/crm-build.log
+            exit 1
+          fi
 
       - name: Verify pushed image
         run: |
