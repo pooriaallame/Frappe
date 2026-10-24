@@ -1,11 +1,6 @@
 name: CRM isolated upgrade test 1.82 to 1.88
 
 on:
-  push:
-    branches:
-      - upgrade/crm-v1.88.0-20261021
-    paths:
-      - ".github/workflows/migration-test-crm.yml"
   workflow_dispatch:
 
 permissions:
@@ -27,7 +22,9 @@ jobs:
           set -euo pipefail
           DB_ROOT_PASSWORD="$(openssl rand -hex 20)"
           ADMIN_PASSWORD="$(openssl rand -hex 20)"
+          echo "::add-mask::$DB_ROOT_PASSWORD"
           echo "DB_ROOT_PASSWORD=$DB_ROOT_PASSWORD" >> "$GITHUB_ENV"
+          echo "::add-mask::$ADMIN_PASSWORD"
           echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> "$GITHUB_ENV"
           echo "CI_SITES_DIR=$RUNNER_TEMP/crm-migration-sites" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/crm-migration-sites"
