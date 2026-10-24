@@ -1,9 +1,6 @@
 name: Smoke test CRM 1.88 image
 
 on:
-  push:
-    branches:
-      - upgrade/crm-v1.88.0-20261021
   workflow_dispatch:
 
 permissions:
