@@ -1,0 +1,176 @@
+name: CRM isolated upgrade test 1.82 to 1.88
+
+on:
+  push:
+    branches:
+      - upgrade/crm-v1.88.0-20261021
+    paths:
+      - ".github/workflows/migration-test-crm.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      OLD_IMAGE: ghcr.io/pooriaallame/frappe-crm-isolated:1.82.0
+      NEW_IMAGE: ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0
+      CI_SITE: migration-check.localhost
+
+    steps:
+      - name: Prepare isolated MariaDB and Redis
+        run: |
+          set -euo pipefail
+          echo "DB_ROOT_PASSWORD=$(openssl rand -hex 20)" >> "$GITHUB_ENV"
+          echo "ADMIN_PASSWORD=$(openssl rand -hex 20)" >> "$GITHUB_ENV"
+          echo "CI_SITES_DIR=$RUNNER_TEMP/crm-migration-sites" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/crm-migration-sites"
+          sudo chown -R 1000:1000 "$RUNNER_TEMP/crm-migration-sites"
+          cat > "$RUNNER_TEMP/crm-migration-sites/common_site_config.json" <<'JSON'
+          {
+            "db_host": "db",
+            "db_port": 3306,
+            "redis_cache": "redis://redis:6379",
+            "redis_queue": "redis://redis:6379",
+            "redis_socketio": "redis://redis:6379",
+            "socketio_port": 9000
+          }
+          JSON
+          printf 'frappe\ncrm\n' > "$RUNNER_TEMP/crm-migration-sites/apps.txt"
+          docker network create crm-ci-net
+          docker run -d --name crm-ci-db --network crm-ci-net --network-alias db \
+            -e MARIADB_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \
+            --health-cmd="healthcheck.sh --connect --innodb_initialized" \
+            --health-interval=5s --health-timeout=5s --health-retries=30 \
+            mariadb:11.8
+          docker run -d --name crm-ci-redis --network crm-ci-net --network-alias redis redis:8.6-alpine
+          for i in $(seq 1 60); do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' crm-ci-db)" = healthy ]; then
+              echo "TEST_DATABASE_READY"
+              break
+            fi
+            if [ "$i" = 60 ]; then docker logs --tail 90 crm-ci-db; exit 1; fi
+            sleep 3
+          done
+          df -h /
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull both immutable-version tags
+        run: |
+          set -euo pipefail
+          docker pull "$OLD_IMAGE"
+          docker pull "$NEW_IMAGE"
+          echo "SOURCE_IMAGE_INFO"
+          docker image inspect "$OLD_IMAGE" --format '{{.Id}}'
+          docker image inspect "$NEW_IMAGE" --format '{{.Id}}'
+          df -h /
+
+      - name: Create fresh site with CRM 1.82.0
+        run: |
+          set -euo pipefail
+          timeout 900 docker run --rm \
+            --network crm-ci-net \
+            --volume "$CI_SITES_DIR:/home/frappe/frappe-bench/sites" \
+            --env DB_ROOT_PASSWORD --env ADMIN_PASSWORD --env CI_SITE \
+            "$OLD_IMAGE" bash -lc '
+              cd /home/frappe/frappe-bench
+              bench new-site "$CI_SITE" \
+                --db-host db --db-port 3306 \
+                --db-root-password "$DB_ROOT_PASSWORD" \
+                --admin-password "$ADMIN_PASSWORD" \
+                --no-mariadb-socket --install-app crm
+              bench --site "$CI_SITE" list-apps
+            '
+
+      - name: Insert synthetic Lead before upgrade
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/crm-seed.py" <<'PY'
+          import frappe
+
+          frappe.init(site="migration-check.localhost", sites_path="/home/frappe/frappe-bench/sites")
+          frappe.connect()
+          try:
+              d = frappe.get_doc({
+                  "doctype": "CRM Lead",
+                  "first_name": "UpgradeSynthetic",
+                  "last_name": "Record",
+              })
+              d.insert(ignore_permissions=True)
+              frappe.db.commit()
+              print("SYNTHETIC_LEAD_INSERTED", d.name)
+          finally:
+              frappe.destroy()
+          PY
+          docker run --rm --network crm-ci-net \
+            --volume "$CI_SITES_DIR:/home/frappe/frappe-bench/sites" \
+            --volume "$RUNNER_TEMP/crm-seed.py:/tmp/seed.py:ro" \
+            "$OLD_IMAGE" bash -lc '
+              cd /home/frappe/frappe-bench
+              ./env/bin/python /tmp/seed.py
+            '
+
+      - name: Migrate same site with CRM 1.88.0
+        run: |
+          set -euo pipefail
+          timeout 900 docker run --rm \
+            --network crm-ci-net \
+            --volume "$CI_SITES_DIR:/home/frappe/frappe-bench/sites" \
+            --env CI_SITE \
+            "$NEW_IMAGE" bash -lc '
+              cd /home/frappe/frappe-bench
+              bench --site "$CI_SITE" migrate
+              bench version
+              bench --site "$CI_SITE" list-apps
+            '
+
+      - name: Verify Lead and CRM DocTypes survived migration
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/crm-verify.py" <<'PY'
+          import frappe
+
+          frappe.init(site="migration-check.localhost", sites_path="/home/frappe/frappe-bench/sites")
+          frappe.connect()
+          try:
+              apps = frappe.get_installed_apps()
+              assert "crm" in apps, apps
+              rows = frappe.get_all(
+                  "CRM Lead",
+                  filters={"first_name": "UpgradeSynthetic"},
+                  fields=["name", "first_name"],
+                  limit_page_length=10,
+              )
+              assert len(rows) == 1, rows
+              for doctype in ("CRM Lead", "CRM Deal", "CRM Task", "Contact"):
+                  assert frappe.db.table_exists(doctype), doctype
+              print("ISOLATED_MIGRATION_PASSED")
+              print("SYNTHETIC_LEAD_PRESERVED", rows[0]["name"])
+              print("CRM_DOCTYPES_PRESENT")
+          finally:
+              frappe.destroy()
+          PY
+          docker run --rm --network crm-ci-net \
+            --volume "$CI_SITES_DIR:/home/frappe/frappe-bench/sites" \
+            --volume "$RUNNER_TEMP/crm-verify.py:/tmp/verify.py:ro" \
+            "$NEW_IMAGE" bash -lc '
+              cd /home/frappe/frappe-bench
+              ./env/bin/python /tmp/verify.py
+            '
+
+      - name: Cleanup note
+        if: always()
+        run: |
+          echo "All databases, Redis services and synthetic data existed only inside this disposable GitHub Actions runner."
+          docker ps -a --format '{{.Names}} {{.Status}}' | grep '^crm-ci-' || true
+          df -h /
