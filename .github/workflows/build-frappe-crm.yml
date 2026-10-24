@@ -2,6 +2,9 @@ name: Build Frappe CRM Image
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - upgrade/crm-v1.88.0-20261021
 
 permissions:
   contents: read
@@ -68,5 +71,12 @@ jobs:
                 || { echo "CRM_APP_MISSING"; exit 1; }
 
               echo "===== VERSIONS ====="
+              echo "===== RUNTIME ====="
+              python --version
+              node --version
+              echo "===== INSTALLED APPS ====="
               bench version
+              echo "===== ASSERT VERSIONS ====="
+              bench version | grep -Eq "^crm[[:space:]]+1\\.88\\.0([[:space:]]|$)"
+              bench version | grep -Eq "^frappe[[:space:]]+16\\."
             '
