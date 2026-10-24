@@ -119,6 +119,7 @@ jobs:
             --volume "$RUNNER_TEMP/crm-seed.py:/tmp/seed.py:ro" \
             "$OLD_IMAGE" bash -lc '
               cd /home/frappe/frappe-bench
+              mkdir -p /home/frappe/logs
               ./env/bin/python /tmp/seed.py
             '
 
@@ -167,6 +168,7 @@ jobs:
             --volume "$RUNNER_TEMP/crm-verify.py:/tmp/verify.py:ro" \
             "$NEW_IMAGE" bash -lc '
               cd /home/frappe/frappe-bench
+              mkdir -p /home/frappe/logs
               ./env/bin/python /tmp/verify.py
             '
 
