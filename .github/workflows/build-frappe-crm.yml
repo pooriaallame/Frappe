@@ -18,13 +18,29 @@ jobs:
           cd frappe_docker
           git checkout 380b9d069ab949754fe78331af647b673984dc04
 
+      - name: Pin compatible Frappe source ref
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          file = Path("frappe_docker/images/layered/Containerfile")
+          text = file.read_text()
+          old = "ARG FRAPPE_BRANCH=version-16\nARG FRAPPE_PATH=https://github.com/frappe/frappe\n"
+          new = "ARG FRAPPE_BRANCH=version-16\nARG FRAPPE_SOURCE_REF=v16.52.0\nARG FRAPPE_PATH=https://github.com/frappe/frappe\n"
+          old_ref = "--frappe-branch=${FRAPPE_BRANCH}"
+          new_ref = "--frappe-branch=${FRAPPE_SOURCE_REF}"
+          if text.count(old) != 1 or text.count(old_ref) != 1:
+              raise SystemExit("Unexpected pinned frappe_docker layout; refusing to patch")
+          file.write_text(text.replace(old, new).replace(old_ref, new_ref))
+          print("Docker base remains version-16; Frappe source pinned to v16.52.0")
+          PY
+
       - name: Create apps.json
         run: |
           cat > frappe_docker/apps.json <<'EOF'
           [
             {
               "url": "https://github.com/frappe/crm",
-              "branch": "v1.82.0"
+              "branch": "v1.88.0"
             }
           ]
           EOF
@@ -41,25 +57,35 @@ jobs:
 
       - name: Build and Push Frappe CRM
         run: |
-          docker buildx build \
+          set -o pipefail
+          if docker buildx build \
             --build-arg=FRAPPE_PATH=https://github.com/frappe/frappe \
             --build-arg=FRAPPE_BRANCH=version-16 \
+            --build-arg=FRAPPE_SOURCE_REF=v16.52.0 \
             --secret=id=apps_json,src=frappe_docker/apps.json \
-            --tag=ghcr.io/pooriaallame/frappe-crm-isolated:1.82.0 \
+            --tag=ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0 \
             --file=frappe_docker/images/layered/Containerfile \
+            --progress=plain \
             --push \
-            frappe_docker
+            frappe_docker > /tmp/crm-build.log 2>&1; then
+            echo "BUILD_AND_PUSH_SUCCEEDED"
+            tail -n 50 /tmp/crm-build.log
+          else
+            echo "::error::Docker image build failed. Final diagnostic log:"
+            tail -n 180 /tmp/crm-build.log
+            exit 1
+          fi
 
       - name: Verify pushed image
         run: |
-          docker pull ghcr.io/pooriaallame/frappe-crm-isolated:1.82.0
+          docker pull ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0
 
           docker run \
             --rm \
             --network none \
             --entrypoint /bin/sh \
-            ghcr.io/pooriaallame/frappe-crm-isolated:1.82.0 \
-            -lc '
+            ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0 \
+            -ec '
               echo "===== APPS ====="
               ls -1 /home/frappe/frappe-bench/apps
 
@@ -67,6 +93,12 @@ jobs:
                 && echo "CRM_APP_PRESENT" \
                 || { echo "CRM_APP_MISSING"; exit 1; }
 
-              echo "===== VERSIONS ====="
+              echo "===== RUNTIME ====="
+              python --version
+              node --version
+              echo "===== INSTALLED APPS ====="
               bench version
+              echo "===== ASSERT VERSIONS ====="
+              bench version | grep -Eq "^crm[[:space:]]+1\\.88\\.0([[:space:]]|$)"
+              bench version | grep -Eq "^frappe[[:space:]]+16\\.52\\.0([[:space:]]|$)"
             '

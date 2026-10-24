@@ -1,0 +1,38 @@
+name: Smoke test CRM 1.88 image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log into GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assert app versions and Node runtime
+        run: |
+          set -euo pipefail
+          image="ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0"
+          docker pull "$image"
+          docker run --rm --network none --entrypoint /bin/sh "$image" -ec '
+            echo "===== PATH ====="
+            echo "$PATH"
+            echo "===== NODE CHECK ====="
+            command -v node
+            node --version
+            echo "===== PYTHON ====="
+            python --version
+            echo "===== APPS ====="
+            bench version
+            bench version | grep -Eq "^crm[[:space:]]+1\\.88\\.0([[:space:]]|$)"
+            bench version | grep -Eq "^frappe[[:space:]]+16\\.52\\.0([[:space:]]|$)"
+          '
