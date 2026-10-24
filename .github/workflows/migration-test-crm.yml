@@ -31,7 +31,6 @@ jobs:
           echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> "$GITHUB_ENV"
           echo "CI_SITES_DIR=$RUNNER_TEMP/crm-migration-sites" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/crm-migration-sites"
-          sudo chown -R 1000:1000 "$RUNNER_TEMP/crm-migration-sites"
           cat > "$RUNNER_TEMP/crm-migration-sites/common_site_config.json" <<'JSON'
           {
             "db_host": "db",
@@ -43,6 +42,7 @@ jobs:
           }
           JSON
           printf 'frappe\ncrm\n' > "$RUNNER_TEMP/crm-migration-sites/apps.txt"
+          sudo chown -R 1000:1000 "$RUNNER_TEMP/crm-migration-sites"
           docker network create crm-ci-net
           docker run -d --name crm-ci-db --network crm-ci-net --network-alias db \
             -e MARIADB_ROOT_PASSWORD="$DB_ROOT_PASSWORD" \
