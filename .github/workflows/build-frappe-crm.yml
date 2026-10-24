@@ -85,7 +85,7 @@ jobs:
             --network none \
             --entrypoint /bin/sh \
             ghcr.io/pooriaallame/frappe-crm-isolated:1.88.0 \
-            -lc '
+            -ec '
               echo "===== APPS ====="
               ls -1 /home/frappe/frappe-bench/apps
 
@@ -93,7 +93,6 @@ jobs:
                 && echo "CRM_APP_PRESENT" \
                 || { echo "CRM_APP_MISSING"; exit 1; }
 
-              echo "===== VERSIONS ====="
               echo "===== RUNTIME ====="
               python --version
               node --version
